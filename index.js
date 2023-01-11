@@ -8,12 +8,9 @@ const ws_1 = require("ws");
 const express_1 = __importDefault(require("express"));
 const path_1 = __importDefault(require("path"));
 const app = (0, express_1.default)();
-const server = app.listen(process.env.PORT || 8080);
-// also needs to be able to serve the app
-// /rzr.tar -> the source
-// /app -> the compiled source, where the hash of index.html + js = on source hash
-// so basically each game MUST have its own UI, they don't need their own interface though
-// requires deterministic builds
+const PORT = process.env.PORT || 8080
+const server = app.listen(PORT);
+
 const wss = new ws_1.WebSocketServer({
     server,
     path: "/signal",
@@ -132,4 +129,4 @@ app.use(express_1.default.static(__dirname + "/public"));
 app.get("*", (req, res) => {
     res.sendFile(path_1.default.join(__dirname + "/public/index.html"));
 });
-console.log('up & running')
+console.log(`up & running on ${PORT}`)
