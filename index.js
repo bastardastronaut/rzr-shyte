@@ -8,9 +8,9 @@ const ws_1 = require("ws");
 const express_1 = __importDefault(require("express"));
 const path_1 = __importDefault(require("path"));
 const app = (0, express_1.default)();
-const PORT = process.env.PORT || 8080
+const PORT = process.env.PORT || 8080;
 const server = app.listen(PORT);
-
+const privateKey = process.env.ROUTER_IDENTITY
 const wss = new ws_1.WebSocketServer({
     server,
     path: "/signal",
@@ -50,13 +50,16 @@ var MessageType;
     MessageType[MessageType["CANDIDATE"] = 4] = "CANDIDATE";
 })(MessageType || (MessageType = {}));
 const clients = new Map();
+const identity = new ethers_1.Wallet(privateKey);
 function processIdentify(client, data) {
-    if (data.byteLength !== 20)
+    if (data.byteLength !== 52)
         return;
-    client.identity = ethers_1.utils.hexlify(data);
+    client.identity = ethers_1.utils.hexlify(data.slice(0, 20));
     client.state = SocketState.AUTHENTICATING;
-    client.authMessage = ethers_1.utils.randomBytes(32);
-    client.ws.send(client.authMessage);
+    client.authMessage = ethers_1.utils.randomBytes(24);
+    identity.signMessage(data.slice(20)).then(signature => {
+        client.ws.send(ethers_1.utils.concat([client.authMessage, signature]));
+    });
 }
 function processAuthentication(client, data) {
     if (ethers_1.utils.verifyMessage(client.authMessage, data).toLowerCase() !==
@@ -85,14 +88,10 @@ function relay(messageType, from, data) {
 }
 function processMessage(client, data) {
     switch (data[0]) {
-        case MessageType.PING: // caller
+        case MessageType.PING:
         case MessageType.OFFER:
-        case MessageType.ANSWER: // caller
-        case MessageType.CANDIDATE: // both? always check caller first?
-            // oh fuck what if multiple clients are called through the same node?
-            // it's pretty terrible as one rzrsocket manages 3 connections, overlaps are almost guaranteed
-            // either manage connections separately or make rzrsockets only handle one connection
-            //
+        case MessageType.ANSWER:
+        case MessageType.CANDIDATE:
             return relay(data[0], client, data.slice(1));
         default:
     }
@@ -126,7 +125,7 @@ wss.on("connection", function connection(ws) {
     });
 });
 app.use(express_1.default.static(__dirname + "/public"));
-app.get("*", (req, res) => {
+app.get("/", (req, res) => {
     res.sendFile(path_1.default.join(__dirname + "/public/index.html"));
 });
-console.log(`up & running on ${PORT}`)
+console.log(`up & running on port ${PORT}`);
