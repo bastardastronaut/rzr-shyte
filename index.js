@@ -125,7 +125,7 @@ wss.on("connection", function connection(ws) {
     });
 });
 app.use(express_1.default.static(__dirname + "/public"));
-app.get("/", (req, res) => {
+app.get("*", (req, res) => {
     res.sendFile(path_1.default.join(__dirname + "/public/index.html"));
 });
 console.log(`up & running on port ${PORT}`);
