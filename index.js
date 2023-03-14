@@ -192,9 +192,11 @@ wss.on("connection", function connection(ws) {
   });
 });
 app.use(express_1.default.static(__dirname + "/public"));
+
 app.get("/", (req, res) => {
   res.sendFile(path_1.default.join(__dirname + "/public/index.html"));
 });
+
 let requests = [];
 const isEligibleForRequest = () => {
   const now = Math.round(new Date().getTime() / 1000);
