@@ -1213,6 +1213,8 @@ onmessage = (e) => {
 
   const timestamp = Math.floor(new Date().getTime() / 1000);
 
+  if (e.data.length !== 20) return
+
   const message = new Uint8Array([
     ...Array.from(n2b(BigInt(timestamp))).slice(26),
     ...e.data, // identity as array
@@ -1224,6 +1226,7 @@ onmessage = (e) => {
 
   signAsync(messageHash, privateKey).then((signature) =>
     postMessage([
+      b2h(e.data),
       timestamp,
       `0x${b2h(n2b(signature.r))}${b2h(n2b(signature.s))}${(
         27 + signature.recovery
