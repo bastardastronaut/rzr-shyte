@@ -4,9 +4,12 @@ const ethers_1 = require("ethers");
 const clients = new Map();
 exports.default = (app, wallet) => {
     function authenticate(timestamp, signature) {
-        return (0, ethers_1.verifyMessage)((0, ethers_1.getBytes)((0, ethers_1.concat)([(0, ethers_1.zeroPadValue)((0, ethers_1.toBeArray)(timestamp), 6), wallet.address])), signature).toLowerCase();
+        return (0, ethers_1.verifyMessage)((0, ethers_1.getBytes)((0, ethers_1.concat)([
+            new TextEncoder().encode("RzR"),
+            (0, ethers_1.zeroPadValue)((0, ethers_1.toBeArray)(timestamp), 6),
+            wallet.address,
+        ])), signature).toLowerCase();
     }
-    ;
     function parseBody(input) {
         if (input.length < 91 || input.length > 2048)
             return 400;

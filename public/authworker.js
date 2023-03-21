@@ -1197,40 +1197,207 @@ const wNAF = (n) => {
 }; // !! you can disable precomputes by commenting-out call of the wNAF() inside Point#mul()
 const ProjectivePoint = Point;
 
-/* END OF LIBRARY */
+/* END OF LIBRARIES */
 
 let privateKey = null;
+let RSA_KEYS = null;
+const encryptionKeys = new Map(); // <string, CryptoKey>
 
-const generatePrefix = (messageLength) =>
-  new TextEncoder().encode(`\x19Ethereum Signed Message:\n${messageLength}`);
+function generatePrefix(messageLength) {
+  return new TextEncoder().encode(
+    `\x19Ethereum Signed Message:\n${messageLength + 3}RzR`
+  );
+  // TODO: this mitigitates the problem a little so, that no arbitrary signatures can be requested, not sure if it's necessary though, given the strict format.
+}
 
-onmessage = (e) => {
-  if (!privateKey) {
-    privateKey = new Uint8Array(e.data);
-    postMessage(true)
-    return;
-  }
+function initialize(data) {
+  const crypto = cr();
+  return crypto.subtle
+    .generateKey(
+      {
+        publicExponent: new Uint8Array([0x01, 0x00, 0x01]),
+        name: "RSA-OAEP",
+        modulusLength: 4096,
+        hash: "SHA-256",
+      },
+      true,
+      ["wrapKey", "unwrapKey"]
+    )
+    .then((keys) => {
+      privateKey = new Uint8Array(data);
+      RSA_KEYS = keys;
+      return new Uint8Array();
+    });
+}
 
-  const timestamp = Math.floor(new Date().getTime() / 1000);
+function signData(data) {
+  const timestamp = n2b(BigInt(Math.floor(new Date().getTime() / 1000))).slice(
+    26
+  );
 
-  if (e.data.length !== 20) return
-
-  const message = new Uint8Array([
-    ...Array.from(n2b(BigInt(timestamp))).slice(26),
-    ...e.data, // identity as array
-  ]);
+  const message = concatB(timestamp, data);
 
   const messageHash = h2b(
     keccak256(new Uint8Array([...generatePrefix(message.length), ...message]))
   );
 
-  signAsync(messageHash, privateKey).then((signature) =>
-    postMessage([
-      b2h(e.data),
+  return signAsync(messageHash, privateKey).then((signature) =>
+    concatB(
       timestamp,
-      `0x${b2h(n2b(signature.r))}${b2h(n2b(signature.s))}${(
-        27 + signature.recovery
-      ).toString(16)}`,
-    ])
+      n2b(signature.r),
+      n2b(signature.s),
+      new Uint8Array([27 + signature.recovery])
+    )
+  );
+}
+
+function getKey(identity) {
+  return encryptionKeys.get(b2h(identity));
+}
+
+function signAndEncrypt(identity, data) {
+  const key = getKey(identity);
+  if (!key) return new Uint8Array();
+  const crypto = cr();
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+
+  return Promise.all([
+    crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, data),
+    signData(data),
+  ]).then(([cipher, timestampAndSignature]) =>
+    concatB(timestampAndSignature, iv, new Uint8Array(cipher))
+  );
+}
+
+function decrypt(identity, iv, data) {
+  const key = encryptionKeys.get(b2h(identity));
+  if (!key) return new Uint8Array();
+
+  const crypto = cr();
+
+  return crypto.subtle
+    .decrypt({ name: "AES-GCM", iv }, key, data)
+    .then((result) => new Uint8Array(result))
+    .catch(() => new Uint8Array());
+}
+
+function exportPublicKey(identity) {
+  const crypto = cr();
+  return crypto.subtle
+    .exportKey("spki", RSA_KEYS.publicKey)
+    .then((exportedKey) =>
+      signData(concatB(identity, new Uint8Array(exportedKey))).then(
+        (timestampAndSignature) =>
+          concatB(timestampAndSignature, new Uint8Array(exportedKey))
+      )
+    );
+}
+
+function generateAndWrapKey(identity, publicKey) {
+  const crypto = cr();
+  return crypto.subtle
+    .generateKey(
+      {
+        name: "AES-GCM",
+        length: 256,
+      },
+      true,
+      ["encrypt", "decrypt"]
+    )
+    .then((key) => {
+      encryptionKeys.set(b2h(identity), key);
+      return crypto.subtle.importKey(
+        "spki",
+        publicKey,
+        {
+          name: "RSA-OAEP",
+          hash: "SHA-256",
+          modulusLength: 4096,
+          publicExponent: new Uint8Array([0x01, 0x00, 0x01]),
+        },
+        true,
+        ["wrapKey"]
+      );
+    })
+    .then((key) =>
+      crypto.subtle.wrapKey("raw", encryptionKeys.get(b2h(identity)), key, {
+        name: "RSA-OAEP",
+      })
+    )
+    .then((wrappedKeyBuffer) => {
+      const wrappedKey = new Uint8Array(wrappedKeyBuffer);
+
+      return signData(concatB(identity, wrappedKey)).then((signature) =>
+        concatB(signature, wrappedKey)
+      );
+    });
+}
+
+function unwrapAndSaveKey(identity, data) {
+  const crypto = cr();
+  return crypto.subtle
+    .unwrapKey(
+      "raw",
+      data.buffer,
+      RSA_KEYS.privateKey,
+      "RSA-OAEP",
+      "AES-GCM",
+      true,
+      ["encrypt", "decrypt"]
+    )
+    .then((key) => {
+      encryptionKeys.set(b2h(identity), key);
+      return new Uint8Array([1]);
+    })
+    .catch(() => new Uint8Array([0]));
+}
+
+const MESSAGE_TYPES = Object.freeze({
+  [0]: "INITIALIZE",
+  [1]: "SIGN",
+  [2]: "SIGN_AND_ENCRYPT",
+  [3]: "DECRYPT",
+  [4]: "EXPORT_PUBLIC_KEY",
+  [5]: "GENERATE_AND_WRAP_KEY",
+  [6]: "UNWRAP_AND_SAVE_KEY",
+  INITIALIZE: 0,
+  SIGN: 1,
+  SIGN_AND_ENCRYPT: 2,
+  DECRYPT: 3,
+  EXPORT_PUBLIC_KEY: 4,
+  GENERATE_AND_WRAP_KEY: 5,
+  UNWRAP_AND_SAVE_KEY: 6,
+});
+
+function processRequest(task, data) {
+  switch (task) {
+    case MESSAGE_TYPES.INITIALIZE:
+      return initialize(data);
+    case MESSAGE_TYPES.SIGN:
+      return signData(data);
+    case MESSAGE_TYPES.SIGN_AND_ENCRYPT:
+      return signAndEncrypt(data.slice(0, 20), data.slice(20));
+    case MESSAGE_TYPES.DECRYPT:
+      return decrypt(data.slice(0, 20), data.slice(20, 32), data.slice(32));
+    case MESSAGE_TYPES.EXPORT_PUBLIC_KEY:
+      return exportPublicKey(data);
+    case MESSAGE_TYPES.GENERATE_AND_WRAP_KEY:
+      return generateAndWrapKey(data.slice(0, 20), data.slice(20));
+    case MESSAGE_TYPES.UNWRAP_AND_SAVE_KEY:
+      return unwrapAndSaveKey(data.slice(0, 20), data.slice(20));
+    default:
+  }
+}
+
+onmessage = (e) => {
+  // actually this is false, communication language will probably be arraybuffer
+  if (!au8(e.data) || e.data.length > 1048576)
+    throw new Error(`invalid data supplied to worker`);
+
+  const requestId = e.data.slice(1, 5);
+  const data = e.data.slice(5);
+
+  processRequest(e.data[0], data).then((result) =>
+    postMessage(concatB(requestId, result))
   );
 };
