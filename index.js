@@ -29,7 +29,6 @@ const provider = RPC_PROVIDER_ADDRESS
     : null;
 const nodeWallet = new ethers_1.Wallet(IDENTITY, provider);
 (0, tunnelProvider_1.default)(server, nodeWallet);
-// routerProvider(server, nodeWallet);
 if (RPC_PROVIDER_ADDRESS) {
     (0, identityProvider_1.default)(app, nodeWallet, CONTRACT_ADDRESS, SUPPORTED_IDENTITY_REQUESTS_PER_HOUR);
 }

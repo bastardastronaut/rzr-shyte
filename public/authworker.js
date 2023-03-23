@@ -1286,7 +1286,7 @@ function exportPublicKey(identity) {
   return crypto.subtle
     .exportKey("spki", RSA_KEYS.publicKey)
     .then((exportedKey) =>
-      signData(concatB(identity, new Uint8Array(exportedKey))).then(
+      signData(new Uint8Array(exportedKey)).then(
         (timestampAndSignature) =>
           concatB(timestampAndSignature, new Uint8Array(exportedKey))
       )
@@ -1327,7 +1327,7 @@ function generateAndWrapKey(identity, publicKey) {
     .then((wrappedKeyBuffer) => {
       const wrappedKey = new Uint8Array(wrappedKeyBuffer);
 
-      return signData(concatB(identity, wrappedKey)).then((signature) =>
+      return signData(wrappedKey).then((signature) =>
         concatB(signature, wrappedKey)
       );
     });
@@ -1352,7 +1352,13 @@ function unwrapAndSaveKey(identity, data) {
     .catch(() => new Uint8Array([0]));
 }
 
-const MESSAGE_TYPES = Object.freeze({
+function removeKey(identity) {
+  encryptionKeys.delete(b2h(identity));
+
+  return Promise.resolve(new Uint8Array())
+}
+
+const MessageTypes = Object.freeze({
   [0]: "INITIALIZE",
   [1]: "SIGN",
   [2]: "SIGN_AND_ENCRYPT",
@@ -1360,6 +1366,7 @@ const MESSAGE_TYPES = Object.freeze({
   [4]: "EXPORT_PUBLIC_KEY",
   [5]: "GENERATE_AND_WRAP_KEY",
   [6]: "UNWRAP_AND_SAVE_KEY",
+  [7]: "REMOVE_KEY",
   INITIALIZE: 0,
   SIGN: 1,
   SIGN_AND_ENCRYPT: 2,
@@ -1367,24 +1374,27 @@ const MESSAGE_TYPES = Object.freeze({
   EXPORT_PUBLIC_KEY: 4,
   GENERATE_AND_WRAP_KEY: 5,
   UNWRAP_AND_SAVE_KEY: 6,
+  REMOVE_KEY: 7,
 });
 
 function processRequest(task, data) {
   switch (task) {
-    case MESSAGE_TYPES.INITIALIZE:
+    case MessageTypes.INITIALIZE:
       return initialize(data);
-    case MESSAGE_TYPES.SIGN:
+    case MessageTypes.SIGN:
       return signData(data);
-    case MESSAGE_TYPES.SIGN_AND_ENCRYPT:
+    case MessageTypes.SIGN_AND_ENCRYPT:
       return signAndEncrypt(data.slice(0, 20), data.slice(20));
-    case MESSAGE_TYPES.DECRYPT:
+    case MessageTypes.DECRYPT:
       return decrypt(data.slice(0, 20), data.slice(20, 32), data.slice(32));
-    case MESSAGE_TYPES.EXPORT_PUBLIC_KEY:
+    case MessageTypes.EXPORT_PUBLIC_KEY:
       return exportPublicKey(data);
-    case MESSAGE_TYPES.GENERATE_AND_WRAP_KEY:
+    case MessageTypes.GENERATE_AND_WRAP_KEY:
       return generateAndWrapKey(data.slice(0, 20), data.slice(20));
-    case MESSAGE_TYPES.UNWRAP_AND_SAVE_KEY:
+    case MessageTypes.UNWRAP_AND_SAVE_KEY:
       return unwrapAndSaveKey(data.slice(0, 20), data.slice(20));
+    case MessageTypes.REMOVE_KEY:
+      return removeKey(data);
     default:
   }
 }
