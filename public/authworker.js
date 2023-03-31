@@ -1208,10 +1208,12 @@ function generatePrefix(messageLength) {
     `\x19Ethereum Signed Message:\n${messageLength + 3}RzR`
   );
   // TODO: this mitigitates the problem a little so, that no arbitrary signatures can be requested, not sure if it's necessary though, given the strict format.
+  // also, while this makes signatures compatible with MetaMask for on-chain validation it is not required at all
 }
 
 function initialize(data) {
   const crypto = cr();
+  // TODO: This key should be the same always 
   return crypto.subtle
     .generateKey(
       {
@@ -1275,6 +1277,7 @@ function decrypt(identity, iv, data) {
 
   const crypto = cr();
 
+  // TODO: this key should be encrypted using an AES-KW key and stored for future communication
   return crypto.subtle
     .decrypt({ name: "AES-GCM", iv }, key, data)
     .then((result) => new Uint8Array(result))
@@ -1399,6 +1402,8 @@ function processRequest(task, data) {
   }
 }
 
+// TODO: consider Transferable objects for large inputs
+// especially good for indexed db storage
 onmessage = (e) => {
   // actually this is false, communication language will probably be arraybuffer
   if (!au8(e.data) || e.data.length > 1048576)

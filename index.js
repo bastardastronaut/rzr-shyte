@@ -5,13 +5,17 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const ethers_1 = require("ethers");
 const fs_1 = require("fs");
+const cors_1 = __importDefault(require("cors"));
 const express_1 = __importDefault(require("express"));
+const body_parser_1 = __importDefault(require("body-parser"));
 const tunnelProvider_1 = __importDefault(require("./tunnelProvider"));
 const sseRouterProvider_1 = __importDefault(require("./sseRouterProvider"));
 const identityProvider_1 = __importDefault(require("./identityProvider"));
 const applicationProvider_1 = __importDefault(require("./applicationProvider"));
 const PORT = process.env.PORT;
 const IDENTITY = process.env.IDENTITY;
+// TODO: eventually add starting point
+// blockNumber + latestHash
 // only fill these in if you want to support identity generation
 const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS;
 const RPC_PROVIDER_ADDRESS = process.env.RPC_PROVIDER_ADDRESS;
@@ -29,8 +33,11 @@ const provider = RPC_PROVIDER_ADDRESS
     : null;
 const nodeWallet = new ethers_1.Wallet(IDENTITY, provider);
 (0, tunnelProvider_1.default)(server, nodeWallet);
+app.use((0, cors_1.default)());
+app.use(body_parser_1.default.raw());
+const clients = (0, sseRouterProvider_1.default)(app, nodeWallet);
 if (RPC_PROVIDER_ADDRESS) {
-    (0, identityProvider_1.default)(app, nodeWallet, CONTRACT_ADDRESS, SUPPORTED_IDENTITY_REQUESTS_PER_HOUR);
+    (0, identityProvider_1.default)(app, nodeWallet, clients, CONTRACT_ADDRESS, SUPPORTED_IDENTITY_REQUESTS_PER_HOUR);
 }
 // also send back
 // -> supported protocols
@@ -42,7 +49,6 @@ if (RPC_PROVIDER_ADDRESS) {
 app.get("/self", (req, res) => {
     res.send(nodeWallet.address);
 });
-(0, sseRouterProvider_1.default)(app, nodeWallet);
 if ((0, fs_1.existsSync)(PATH)) {
     (0, applicationProvider_1.default)(app, PATH);
 }

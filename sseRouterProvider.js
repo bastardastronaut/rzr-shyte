@@ -2,6 +2,11 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const ethers_1 = require("ethers");
 const clients = new Map();
+// each peer is allowed to mark 100 other peers that are allowed to leave async messages
+// TODO: consider permission matrix, who can talk to whom, (peers) * (peers), might be too long
+const allowedToStore = new Map();
+// each peer is allowed to store 4M of data
+const storage = new Map();
 exports.default = (app, wallet) => {
     function authenticate(timestamp, signature) {
         return (0, ethers_1.verifyMessage)((0, ethers_1.getBytes)((0, ethers_1.concat)([
@@ -33,7 +38,7 @@ exports.default = (app, wallet) => {
         const client = clients.get(getTarget(req.body));
         if (!client)
             return res.sendStatus(404);
-        send(client, messageType, message);
+        send(client.response, messageType, message);
         res.sendStatus(200);
     }
     app.post("/ping", (req, res) => relayRequest(req, res, "ping"));
@@ -51,7 +56,19 @@ exports.default = (app, wallet) => {
             return res.end();
         // TODO: need signature verification and make sure user is registered on chain
         const address = authenticate(timestamp, (0, ethers_1.hexlify)(signature));
-        clients.set(address, res);
+        const previousResponse = clients.get(address);
+        if (previousResponse) {
+            previousResponse.response.end();
+        }
+        // TODO: broadcast player addition
+        clients.set(address, {
+            response: res,
+            signature: signature.buffer,
+            timestamp: timestamp,
+            syncProgress: 0,
+            installedModules: new ArrayBuffer(0),
+            topics: new Map(),
+        });
         res.writeHead(200, {
             "Content-Type": "text/event-stream",
             "Cache-Control": "no-cache",
@@ -59,8 +76,44 @@ exports.default = (app, wallet) => {
         });
         // Listen for the client closing the connection
         req.on("close", () => {
+            // TODO: broadcast player deletion
             clients.delete(address);
             res.end();
         });
     });
+    // TODO: right, so topics, available peers, storage are not part of signaling, should be its own file
+    app.get("/topic/:topicId", (req, res) => {
+        var _a;
+        const topic = (_a = req.params) === null || _a === void 0 ? void 0 : _a.topicId;
+        // get all registered clients from topic, with signature + topic + timestamp
+        // return them in a <identity> <ArrayBuffer> format
+        res.sendStatus(200);
+    });
+    app.post("/topic/:topicId", (req, res) => {
+        // authenticate by signature.
+        // set topic
+    });
+    app.delete("/topic/:topicId", (req, res) => {
+        // authenticate by signature.
+        // delete topic
+    });
+    app.post("/storage/:identity", (req, res) => {
+        // authenticate by signature.
+        // arbitrary encrypted data
+        // append to storage
+        // storage is, byteLength | timestamp | signature | data 
+    });
+    app.get("/storage", (req, res) => {
+        // authenticate by signature.
+        // returns the storage for the given authorized identity
+    });
+    app.get("/available-peers", (req, res) => {
+        res.send((0, ethers_1.encodeBase64)(Array.from(clients.entries()).reduce((result, [identity, { signature, timestamp }]) => (0, ethers_1.concat)([
+            result,
+            identity,
+            (0, ethers_1.zeroPadValue)((0, ethers_1.toBeArray)(timestamp), 6),
+            new Uint8Array(signature),
+        ]), "0x")));
+    });
+    return clients.values();
 };
